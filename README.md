@@ -1,2 +1,3 @@
 # ServerLinkMod
-Server Link Mod
+
+Simple server linking for SE.
