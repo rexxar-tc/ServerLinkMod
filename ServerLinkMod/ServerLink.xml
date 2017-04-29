@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-16"?>
+<Settings xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <MaxBlockCount>5000</MaxBlockCount>
+  <MaxPlayerCount>10</MaxPlayerCount>
+  <HubIP>12.34.56.78:27017</HubIP>
+  <BattleIPs>
+    <string>98.76.54.32:27016</string>
+  </BattleIPs>
+  <JoinTime>5</JoinTime>
+  <BattleTime>15</BattleTime>
+  <Password>CHANGE THIS</Password>
+  <Hub>false</Hub>
+  <SpawnRadius>5000</SpawnRadius>
+</Settings>
