@@ -21,7 +21,8 @@ namespace ServerLinkMod
             Error,
             Ok,
             Timeout,
-            ContentModified
+            ContentModified,
+            WrongIP,
         }
 
         public const string ZERO_IP = "0.0.0.0:27016";
@@ -51,7 +52,7 @@ namespace ServerLinkMod
                 c.AttachPilot(pilot);
 
             IMyFaction fac = MyAPIGateway.Session.Factions.TryGetPlayerFaction(player.IdentityId);
-            var data = new ClientData(ob, fac, block);
+            var data = new ClientData(ob, fac, block, Settings.Instance.HubIP);
 
             string obStr = MyAPIGateway.Utilities.SerializeToXML(data);
             string totalStr = DateTime.UtcNow.Ticks + obStr;
@@ -82,6 +83,9 @@ namespace ServerLinkMod
                 clientData = MyAPIGateway.Utilities.SerializeFromXML<ClientData>(obString);
 
                 var time = new DateTime(ticks);
+
+                if(clientData.HubIP != Settings.Instance.HubIP)
+                    return VerifyResult.WrongIP;
 
                 if (sign != hash)
                     return VerifyResult.ContentModified;

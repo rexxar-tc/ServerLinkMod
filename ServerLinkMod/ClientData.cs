@@ -13,11 +13,12 @@ namespace ServerLinkMod
         public SerializableVector3I ControlledBlock;
         public FactionData Faction;
         public MyObjectBuilder_CubeGrid Grid;
+        public string HubIP;
 
         public ClientData()
         {}
 
-        public ClientData(MyObjectBuilder_CubeGrid grid, IMyFaction faction, Vector3I controlledBlock)
+        public ClientData(MyObjectBuilder_CubeGrid grid, IMyFaction faction, Vector3I controlledBlock, string hubIP)
         {
             Grid = grid;
             ControlledBlock = controlledBlock;
@@ -25,6 +26,7 @@ namespace ServerLinkMod
                 Faction = new FactionData(faction);
             else
                 Faction = new FactionData();
+            HubIP = hubIP;
         }
     }
 

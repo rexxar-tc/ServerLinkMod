@@ -163,8 +163,8 @@ namespace ServerLinkMod
 
                     if (Settings.Instance.Hub)
                     {
-                        if (_updateCount % 10 == 0)
-                            ProcessEnforcement();
+                        //if (_updateCount % 10 == 0)
+                        //    ProcessEnforcement();
                     }
                     else
                     {

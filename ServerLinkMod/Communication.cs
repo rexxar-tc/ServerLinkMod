@@ -18,7 +18,8 @@ namespace ServerLinkMod
             ClientChat,
             Redirect,
             Notificaion,
-            MatchTimes
+            MatchTimes,
+            ShipDelete,
         }
 
         public const ushort NETWORK_ID = 7815;
@@ -68,6 +69,9 @@ namespace ServerLinkMod
                         break;
                     case MessageType.MatchTimes:
                         OnMatchTimes(data);
+                        break;
+                    case MessageType.ShipDelete:
+                        OnShipDelete(data);
                         break;
                     default:
                         return;
@@ -138,6 +142,8 @@ namespace ServerLinkMod
                     Utilities.FindPositionAndSpawn(clientData.Grid, id, clientData.ControlledBlock);
                     LinkModCore.Instance.TryStartLobby();
                     SendMatchTimes(steamId);
+                    if (Settings.Instance.Hub)
+                        SendShipDelete(steamId);
                     break;
                 case Utilities.VerifyResult.Error:
                     MyAPIGateway.Utilities.ShowMessage("Server", "Error loading a grid. Notify an admin!");
@@ -154,6 +160,9 @@ namespace ServerLinkMod
                     RedirectClient(steamId, Utilities.ZERO_IP);
                     Logging.Instance.WriteLine($"User {steamId} was detected cheating. Validation response: {res}. Client data to follow:");
                     Logging.Instance.WriteLine(clientData == null ? "NULL" : MyAPIGateway.Utilities.SerializeToXML(clientData));
+                    break;
+                case Utilities.VerifyResult.WrongIP:
+                    SendShipDelete(steamId);
                     break;
                 default:
                     return;
@@ -197,6 +206,11 @@ namespace ServerLinkMod
 
             LinkModCore.Instance.LobbyTime = new DateTime(lobbyTime);
             LinkModCore.Instance.MatchTime = new DateTime(matchTime);
+        }
+
+        private static void OnShipDelete(byte[] data)
+        {
+            MyAPIGateway.Utilities.DeleteFileInLocalStorage("Ship.bin", typeof(LinkModCore));
         }
 
         #endregion
@@ -273,6 +287,11 @@ namespace ServerLinkMod
             BitConverter.GetBytes(matchTime.Ticks).CopyTo(data, sizeof(long));
 
             SendToClient(MessageType.MatchTimes, data, steamId);
+        }
+
+        public static void SendShipDelete(ulong steamId)
+        {
+            SendToClient(MessageType.ShipDelete, new byte[0], steamId );
         }
 
         #endregion
