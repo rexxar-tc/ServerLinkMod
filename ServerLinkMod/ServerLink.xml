@@ -11,4 +11,7 @@
   <Password>CHANGE THIS</Password>
   <Hub>false</Hub>
   <SpawnRadius>5000</SpawnRadius>
+  <ReturnShip>false</ReturnShip>
+  <HubEnforcement>false</HubEnforcement>
+  <NodeEnforcement>false</NodeEnforcement>
 </Settings>

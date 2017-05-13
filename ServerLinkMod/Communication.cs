@@ -135,28 +135,30 @@ namespace ServerLinkMod
 
             switch (res)
             {
+                case Utilities.VerifyResult.Timeout:
+                    if (Settings.Instance.Hub)
+                        goto case Utilities.VerifyResult.Ok;
+                    goto case Utilities.VerifyResult.ContentModified;
                 case Utilities.VerifyResult.Ok:
                     long id = MyAPIGateway.Players.TryGetIdentityId(steamId);
 
                     Utilities.RecreateFaction(clientData.Faction, id);
-                    Utilities.FindPositionAndSpawn(clientData.Grid, id, clientData.ControlledBlock);
+                    var grid = Utilities.FindPositionAndSpawn(clientData.Grid, id, clientData.ControlledBlock);
                     LinkModCore.Instance.TryStartLobby();
                     SendMatchTimes(steamId);
-                    if (Settings.Instance.Hub)
+                    if (Settings.Instance.Hub || Settings.Instance.ReturnShip)
                         SendShipDelete(steamId);
+                    LinkModCore.Instance.PlayerGrids[steamId] = grid;
                     break;
                 case Utilities.VerifyResult.Error:
                     MyAPIGateway.Utilities.ShowMessage("Server", "Error loading a grid. Notify an admin!");
                     MyAPIGateway.Utilities.SendMessage("Error loading a grid. Notify an admin!");
                     Logging.Instance.WriteLine($"User {steamId} failed. Validation response: {res}. Client data to follow:");
-                    Logging.Instance.WriteLine(clientData == null ? "NULL" : MyAPIGateway.Utilities.SerializeToXML(clientData));
+                    Logging.Instance.WriteLine(Encoding.UTF8.GetString(message));
                     break;
-                case Utilities.VerifyResult.Timeout:
-                    if (Settings.Instance.Hub)
-                        goto case Utilities.VerifyResult.Ok;
-                    goto case Utilities.VerifyResult.ContentModified;
                 case Utilities.VerifyResult.ContentModified:
                     MyAPIGateway.Utilities.SendMessage("A user was detected cheating! Event was recorded and the user will be remnoved from the game.");
+                    SendShipDelete(steamId);
                     RedirectClient(steamId, Utilities.ZERO_IP);
                     Logging.Instance.WriteLine($"User {steamId} was detected cheating. Validation response: {res}. Client data to follow:");
                     Logging.Instance.WriteLine(clientData == null ? "NULL" : MyAPIGateway.Utilities.SerializeToXML(clientData));

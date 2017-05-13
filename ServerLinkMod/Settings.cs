@@ -20,6 +20,10 @@ namespace ServerLinkMod
         public string Password;
         public double SpawnRadius;
 
+        public bool ReturnShip;
+        public bool NodeEnforcement;
+        public bool HubEnforcement;
+
         public static void LoadSettings()
         {
             try

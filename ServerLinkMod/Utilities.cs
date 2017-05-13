@@ -110,7 +110,7 @@ namespace ServerLinkMod
         /// </summary>
         /// <param name="ob"></param>
         /// <param name="playerId"></param>
-        public static void FindPositionAndSpawn(MyObjectBuilder_CubeGrid ob, long playerId, Vector3I controlledBlock)
+        public static IMyCubeGrid FindPositionAndSpawn(MyObjectBuilder_CubeGrid ob, long playerId, Vector3I controlledBlock)
         {
             MyAPIGateway.Entities.RemapObjectBuilder(ob);
             ob.IsStatic = false;
@@ -169,6 +169,8 @@ namespace ServerLinkMod
                 Vector3D cPos = RandomPositionFromPoint(ent.WorldVolume.Center, ent.WorldVolume.Radius + 10);
                 player?.Character?.SetPosition(cPos);
             }
+
+            return (IMyCubeGrid)ent;
         }
 
         /// <summary>
@@ -179,7 +181,20 @@ namespace ServerLinkMod
             var players = new List<IMyPlayer>();
             MyAPIGateway.Players.GetPlayers(players);
             foreach (IMyPlayer p in players)
+            {
+                var block = p?.Controller?.ControlledEntity?.Entity as IMyCubeBlock;
+                IMyCubeGrid grid = block?.CubeGrid;
+
+                if (grid == null)
+                    LinkModCore.Instance.PlayerGrids.TryGetValue(p.SteamUserId, out grid);
+
+                if (grid != null)
+                {
+                    byte[] payload = Utilities.SerializeAndSign(grid, p, block?.Position ?? Vector3I.Zero);
+                    Communication.SegmentAndSend(Communication.MessageType.ClientGridPart, payload, MyAPIGateway.Multiplayer.ServerId, p.SteamUserId);
+                }
                 Communication.RedirectClient(p.SteamUserId, Settings.Instance.HubIP);
+            }
 
             var timer = new Timer(10000);
             timer.AutoReset = false;

@@ -63,6 +63,7 @@ namespace ServerLinkMod
         public DateTime MatchStart;
         public DateTime? MatchTime;
         public Dictionary<int, ServerItem> Servers = new Dictionary<int, ServerItem>();
+        public Dictionary<ulong, IMyCubeGrid> PlayerGrids = new Dictionary<ulong, IMyCubeGrid>();
 
         public override void UpdateBeforeSimulation()
         {
@@ -161,15 +162,16 @@ namespace ServerLinkMod
                         return;
                     }
 
-                    if (Settings.Instance.Hub)
+                    if (Settings.Instance.Hub && Settings.Instance.HubEnforcement)
                     {
-                        //if (_updateCount % 10 == 0)
-                        //    ProcessEnforcement();
+                        if (_updateCount % 10 == 0)
+                            ProcessEnforcement();
                     }
                     else
                     {
-                        if (_updateCount % 120 == 0)
+                        if (Settings.Instance.NodeEnforcement && _updateCount % 120 == 0)
                             ProcessCleanup();
+
                         if (_lobbyRunning)
                         {
                             var entities = new HashSet<IMyEntity>();
@@ -300,6 +302,21 @@ namespace ServerLinkMod
                 {
                     Communication.SendServerChat(steamId, "You're already in the hub!");
                     return;
+                }
+                else if(Settings.Instance.ReturnShip)
+                {
+                    var player = Utilities.GetPlayerBySteamId(steamId);
+                    var block = player?.Controller?.ControlledEntity?.Entity as IMyCubeBlock;
+                    IMyCubeGrid grid = block?.CubeGrid;
+
+                    if (grid == null)
+                        PlayerGrids.TryGetValue(steamId, out grid);
+
+                    if (grid != null)
+                    {
+                        byte[] payload = Utilities.SerializeAndSign(grid, player, block?.Position ?? Vector3I.Zero);
+                        Communication.SegmentAndSend(Communication.MessageType.ClientGridPart, payload, MyAPIGateway.Multiplayer.ServerId, steamId);
+                    }
                 }
                 Communication.RedirectClient(steamId, Settings.Instance.HubIP);
                 return;
@@ -457,7 +474,7 @@ namespace ServerLinkMod
                 _matchTimer.AutoReset = false;
                 _matchTimer.Elapsed += MatchTimer_Elapsed;
 
-                if (Settings.Instance.Hub)
+                if (Settings.Instance.Hub && Settings.Instance.HubEnforcement)
                 {
                     _cleanupTimer = new Timer(10 * 60 * 1000);
                     _cleanupTimer.Elapsed += CleanupTimer_Elapsed;
