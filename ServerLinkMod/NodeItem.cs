@@ -3,7 +3,7 @@ using VRage.Game;
 
 namespace ServerLinkMod
 {
-    public class ServerItem
+    public class NodeItem
     {
         public readonly int Index;
         public readonly string IP;
@@ -11,18 +11,24 @@ namespace ServerLinkMod
         public int CurrentUsers;
         public Timer JoinTimer;
         public bool MatchRunning;
+        public Settings.NodeType Type;
 
-        public ServerItem(int index, string ip)
+        public NodeItem(int index, string ip, Settings.NodeType type)
         {
             Index = index;
             IP = ip;
-            JoinTimer = new Timer(Settings.Instance.JoinTime * 60 * 1000);
-            JoinTimer.Elapsed += JoinTimer_Elapsed;
-            JoinTimer.AutoReset = false;
+            Type = type;
 
-            BattleTimer = new Timer(Settings.Instance.BattleTime * 60 * 1000);
-            BattleTimer.Elapsed += BattleTimer_Elapsed;
-            BattleTimer.AutoReset = false;
+            if (type == Settings.NodeType.Battle)
+            {
+                JoinTimer = new Timer(Settings.Instance.JoinTime * 60 * 1000);
+                JoinTimer.Elapsed += JoinTimer_Elapsed;
+                JoinTimer.AutoReset = false;
+
+                BattleTimer = new Timer(Settings.Instance.BattleTime * 60 * 1000);
+                BattleTimer.Elapsed += BattleTimer_Elapsed;
+                BattleTimer.AutoReset = false;
+            }
         }
 
         public bool CanJoin
@@ -65,6 +71,14 @@ namespace ServerLinkMod
             Communication.SendServerChat(0, $"Battle has begun on server {Index + 1} and is now closed to new players. Good luck!");
             MatchRunning = true;
             BattleTimer.Start();
+        }
+
+        public class NodeStatus
+        {
+            public long Timestamp;
+            public int CurrentMembers;
+            public bool ReadyForNew;
+            public string IP;
         }
     }
 }

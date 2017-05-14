@@ -1,24 +1,62 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Xml.Serialization;
 using Sandbox.ModAPI;
+using VRage.Serialization;
 
 namespace ServerLinkMod
 {
     [Serializable]
     public class Settings
     {
+        public enum NodeType
+        {
+            Battle,
+            Mining,
+            NonPersistent,
+            SemiPersistent,
+        }
+
+        public enum ExitBehavior
+        {
+            None,
+            Punishment,
+            ReturnToHub,
+        }
+
         public static Settings Instance;
-        public List<string> BattleIPs;
-        public int BattleTime;
-        public bool Hub;
+
+        public SerializableDictionary<string, NodeType> Nodes;
+        public string CurrentIP;
         public string HubIP;
+        public string Password;
+
+        public int BattleTime;
         public int JoinTime;
+        public double SpawnRadius;
 
         public int MaxBlockCount;
         public int MaxPlayerCount;
-        public string Password;
-        public double SpawnRadius;
+
+        public bool HubEnforcemenEnabled;
+        public bool HubEnforcementStaticGrids;
+        public bool HubEnforcementWeaponsOff;
+        public bool HubEnforcementDamageOff;
+        public bool HubEnforcementNoMechanicalBllocks;
+        public bool HubEnforcementOwnerOffline;
+
+        public bool WipeNodeWhenEmpty;
+        public int NodeCleanupGridSize;
+        public bool NodeCleanupSlimOnly;
+        public bool NodeCleanupResetVoxels;
+        public ExitBehavior NodeExitBehavior;
+
+        [XmlIgnore]
+        public bool Hub
+        {
+            get { return HubIP == CurrentIP; }
+        }
 
         public bool ReturnShip;
         public bool NodeEnforcement;
@@ -30,7 +68,7 @@ namespace ServerLinkMod
             {
                 TextReader reader = MyAPIGateway.Utilities.ReadFileInLocalStorage("ServerLink.xml", typeof(LinkModCore));
                 string xml = reader.ReadToEnd();
-                Logging.Instance.WriteLine($"Loading settings: {xml}");
+                Logging.Instance.WriteDebug($"Loading settings: {xml}");
                 Instance = MyAPIGateway.Utilities.SerializeFromXML<Settings>(xml);
                 reader.Close();
             }

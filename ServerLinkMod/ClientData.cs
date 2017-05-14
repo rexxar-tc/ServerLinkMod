@@ -10,6 +10,7 @@ namespace ServerLinkMod
     [Serializable, XmlInclude(typeof(FactionData))]
     public class ClientData
     {
+        public long Timestamp;
         public SerializableVector3I ControlledBlock;
         public FactionData Faction;
         public MyObjectBuilder_CubeGrid Grid;

@@ -64,6 +64,7 @@ namespace ServerLinkMod
         public DateTime? MatchTime;
         public Dictionary<int, ServerItem> Servers = new Dictionary<int, ServerItem>();
         public Dictionary<ulong, IMyCubeGrid> PlayerGrids = new Dictionary<ulong, IMyCubeGrid>();
+        public Dictionary<int, NodeItem> Nodes = new Dictionary<int, NodeItem>();
 
         public override void UpdateBeforeSimulation()
         {
@@ -224,13 +225,13 @@ namespace ServerLinkMod
                     Communication.SendServerChat(steamId, "Join commands are not valid in battle servers!");
                     return;
                 }
-                Communication.SendServerChat(steamId, $"There are {Servers.Count} battle servers. Please select the one you want by sending '!join [number]'");
-                List<int> availableServers = (from server in Servers.Values where server.CanJoin select server.Index + 1).ToList();
+                Communication.SendServerChat(steamId, $"There are {Nodes.Count} battle servers. Please select the one you want by sending '!join [number]'");
+                List<int> availableServers = (from server in Nodes.Values where server.CanJoin select server.Index + 1).ToList();
 
-                if (availableServers.Count < Servers.Count)
+                if (availableServers.Count < Nodes.Count)
                     Communication.SendServerChat(steamId, $"These servers are ready for matches: {string.Join(", ", availableServers)}");
                 else
-                    Communication.SendServerChat(steamId, $"All {Servers.Count} servers are available for new matches!");
+                    Communication.SendServerChat(steamId, $"All {Nodes.Count} servers are available for new matches!");
 
                 return;
             }
@@ -245,7 +246,7 @@ namespace ServerLinkMod
                 }
 
                 string numtex = command.Substring(ind);
-                ServerItem server;
+                NodeItem node;
                 int num;
                 if (!int.TryParse(numtex, out num))
                 {
@@ -253,13 +254,13 @@ namespace ServerLinkMod
                     return;
                 }
 
-                if (!Servers.TryGetValue(num - 1, out server))
+                if (!Nodes.TryGetValue(num - 1, out node))
                 {
                     Communication.SendServerChat(steamId, $"Couldn't find server {num}");
                     return;
                 }
 
-                if (!server.CanJoin)
+                if (!node.CanJoin)
                 {
                     Communication.SendServerChat(steamId, "Sorry, this server is not open to new members. Please try another.");
                     return;
@@ -287,7 +288,7 @@ namespace ServerLinkMod
                 byte[] payload = Utilities.SerializeAndSign(grid, Utilities.GetPlayerBySteamId(steamId), block.Position);
                 Communication.SegmentAndSend(Communication.MessageType.ClientGridPart, payload, MyAPIGateway.Multiplayer.ServerId, steamId);
 
-                server.Join(steamId);
+                node.Join(steamId);
 
                 var timer = new Timer(10000);
                 timer.AutoReset = false;
@@ -334,7 +335,7 @@ namespace ServerLinkMod
                     }
 
                     string numtex = command.Substring(ind);
-                    ServerItem server;
+                    NodeItem node;
                     int num;
                     if (!int.TryParse(numtex, out num))
                     {
@@ -342,14 +343,14 @@ namespace ServerLinkMod
                         return;
                     }
 
-                    if (!Servers.TryGetValue(num - 1, out server))
+                    if (!Nodes.TryGetValue(num - 1, out node))
                     {
                         Communication.SendServerChat(steamId, $"Couldn't find server {num}");
                         return;
                     }
 
                     MyAPIGateway.Utilities.DeleteFileInLocalStorage("Ship.bin", typeof(LinkModCore));
-                    Communication.RedirectClient(steamId, server.IP);
+                    Communication.RedirectClient(steamId, node.IP);
                     return;
                 }
             }
@@ -396,14 +397,14 @@ namespace ServerLinkMod
                     int ind = command.IndexOf(" ");
                     if (ind == -1)
                     {
-                        foreach(var s in Servers.Values)
+                        foreach(var s in Nodes.Values)
                             s.Reset();
                         Communication.SendServerChat(steamId, "Reset all servers");
                         return;
                     }
 
                     string numtex = command.Substring(ind);
-                    ServerItem server;
+                    NodeItem node;
                     int num;
                     if (!int.TryParse(numtex, out num))
                     {
@@ -411,9 +412,9 @@ namespace ServerLinkMod
                         return;
                     }
 
-                    if (Servers.TryGetValue(num -1, out server))
+                    if (Nodes.TryGetValue(num -1, out node))
                     {
-                        server.Reset();
+                        node.Reset();
                         Communication.SendServerChat(steamId, $"Reset server {num}");
                     }
                 }
@@ -463,9 +464,10 @@ namespace ServerLinkMod
             {
                 Settings.LoadSettings();
 
-                for (var i = 0; i < Settings.Instance.BattleIPs.Count; i++)
-                    Servers.Add(i, new ServerItem(i, Settings.Instance.BattleIPs[i]));
-
+                int index = 0;
+                foreach (var entry in Settings.Instance.Nodes.Dictionary)
+                    Nodes.Add(index++, new NodeItem(index, entry.Key, entry.Value));
+                
                 _lobbyTimer = new Timer(Settings.Instance.JoinTime * 60 * 1000);
                 _lobbyTimer.AutoReset = false;
                 _lobbyTimer.Elapsed += LobbyTimer_Elapsed;

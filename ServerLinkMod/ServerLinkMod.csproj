@@ -84,7 +84,7 @@
     <Compile Include="MD5.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="SegmentedReceiver.cs" />
-    <Compile Include="ServerItem.cs" />
+    <Compile Include="NodeItem.cs" />
     <Compile Include="Settings.cs" />
     <Compile Include="Utilities.cs" />
   </ItemGroup>
