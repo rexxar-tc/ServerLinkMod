@@ -62,7 +62,7 @@ namespace ServerLinkMod
         public DateTime? LobbyTime;
         public DateTime MatchStart;
         public DateTime? MatchTime;
-        public Dictionary<int, ServerItem> Servers = new Dictionary<int, ServerItem>();
+        public Dictionary<int, NodeItem> Servers = new Dictionary<int, NodeItem>();
         public Dictionary<ulong, IMyCubeGrid> PlayerGrids = new Dictionary<ulong, IMyCubeGrid>();
         public Dictionary<int, NodeItem> Nodes = new Dictionary<int, NodeItem>();
 
