@@ -113,10 +113,6 @@ namespace ServerLinkMod
         public static IMyCubeGrid FindPositionAndSpawn(MyObjectBuilder_CubeGrid ob, long playerId, Vector3I controlledBlock)
         {
             MyAPIGateway.Entities.RemapObjectBuilder(ob);
-            ob.IsStatic = false;
-            IMyEntity ent = MyAPIGateway.Entities.CreateFromObjectBuilder(ob);
-            IMyFaction fac = MyAPIGateway.Session.Factions.TryGetPlayerFaction(playerId);
-
             foreach (MyObjectBuilder_CubeBlock block in ob.CubeBlocks)
             {
                 block.Owner = playerId;
@@ -125,6 +121,15 @@ namespace ServerLinkMod
                     continue;
                 c.Pilot = null;
             }
+            ob.IsStatic = false;
+            //IMyEntity ent = MyAPIGateway.Entities.CreateFromObjectBuilder(ob);
+            MyAPIGateway.Entities.CreateFromObjectBuilderParallel(ob, true, () => SpawnCallback(ob.EntityId, playerId, controlledBlock));
+        }
+
+        private static void SpawnCallback(long entityId, long playerId, Vector3I controlledBlock)
+        {
+            IMyFaction fac = MyAPIGateway.Session.Factions.TryGetPlayerFaction(playerId);
+            var ent = MyAPIGateway.Entities.GetEntityById(entityId);
 
             Vector3D pos = RandomPositionFromPoint(Vector3D.Zero, Random.NextDouble() * Settings.Instance.SpawnRadius);
             ent.SetPosition(MyAPIGateway.Entities.FindFreePlace(pos, (float)ent.WorldVolume.Radius) ?? pos);
@@ -154,7 +159,7 @@ namespace ServerLinkMod
                     break;
                 }
             }
-            MyAPIGateway.Entities.AddEntity(ent);
+
             ((IMyCubeGrid)ent).ChangeGridOwnership(playerId, MyOwnershipShareModeEnum.Faction);
 
             IMySlimBlock slim = ((IMyCubeGrid)ent).GetCubeBlock(controlledBlock);

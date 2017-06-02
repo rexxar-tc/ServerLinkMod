@@ -418,6 +418,40 @@ namespace ServerLinkMod
                         Communication.SendServerChat(steamId, $"Reset server {num}");
                     }
                 }
+
+                if (command.StartsWith("!testout", StringComparison.CurrentCultureIgnoreCase))
+                {
+                    var block = MyAPIGateway.Session?.Player?.Controller?.ControlledEntity?.Entity as IMyCubeBlock;
+                    IMyCubeGrid grid = block?.CubeGrid;
+                    if (grid == null)
+                    {
+                        Communication.SendServerChat(steamId, "Can't find your ship. Make sure you're seated in the ship you want to take with you.");
+                        return;
+                    }
+                    
+                    byte[] payload = Utilities.SerializeAndSign(grid, Utilities.GetPlayerBySteamId(steamId), block.Position);
+                    var writer = MyAPIGateway.Utilities.WriteBinaryFileInLocalStorage("TestShip.bin", typeof(LinkModCore));
+                    writer.Write(payload.Length);
+                    writer.Write(payload);
+                    writer.Flush();
+                    writer.Close();
+
+                    Communication.SendServerChat(steamId, $"Done.");
+                }
+
+                if (command.StartsWith("!testin", StringComparison.CurrentCultureIgnoreCase))
+                {
+                    var reader = MyAPIGateway.Utilities.ReadBinaryFileInLocalStorage("TestShip.bin", typeof(LinkModCore));
+                    int count = reader.ReadInt32();
+                    byte[] payload = reader.ReadBytes(count);
+                    reader.Close();
+
+                    ClientData data;
+                    Utilities.DeserializeAndVerify(payload, out data, true);
+                    Utilities.FindPositionAndSpawn(data.Grid, MyAPIGateway.Session.Player.IdentityId, data.ControlledBlock);
+
+                    Communication.SendServerChat(steamId, $"Processing...");
+                }
             }
 
             if (command.Equals("!help", StringComparison.CurrentCultureIgnoreCase))
