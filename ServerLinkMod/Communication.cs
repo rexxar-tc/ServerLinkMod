@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Timers;
 using Sandbox.ModAPI;
@@ -131,24 +132,23 @@ namespace ServerLinkMod
                 return; //don't have all the parts yet
 
             ClientData clientData;
-            Utilities.VerifyResult res = Utilities.DeserializeAndVerify(message, out clientData, Settings.Instance.Hub);
+            Utilities.VerifyResult res = Utilities.DeserializeAndVerify(message, out clientData, Settings.Instance.IsHub);
 
             switch (res)
             {
                 case Utilities.VerifyResult.Timeout:
-                    if (Settings.Instance.Hub)
+                    if (Settings.Instance.IsHub)
                         goto case Utilities.VerifyResult.Ok;
                     goto case Utilities.VerifyResult.ContentModified;
                 case Utilities.VerifyResult.Ok:
                     long id = MyAPIGateway.Players.TryGetIdentityId(steamId);
 
                     Utilities.RecreateFaction(clientData.Faction, id);
-                    var grid = Utilities.FindPositionAndSpawn(clientData.Grid, id, clientData.ControlledBlock);
+                    Utilities.FindPositionAndSpawn(clientData.Grids, id, clientData.ControlledBlock, grids => LinkModCore.Instance.PlayerGrids[steamId] = grids[0]);
                     LinkModCore.Instance.TryStartLobby();
                     SendMatchTimes(steamId);
-                    if (Settings.Instance.Hub || Settings.Instance.ReturnShip)
+                    if (Settings.Instance.IsHub)
                         SendShipDelete(steamId);
-                    LinkModCore.Instance.PlayerGrids[steamId] = grid;
                     break;
                 case Utilities.VerifyResult.Error:
                     MyAPIGateway.Utilities.ShowMessage("Server", "Error loading a grid. Notify an admin!");
@@ -283,8 +283,8 @@ namespace ServerLinkMod
         public static void SendMatchTimes(ulong steamId)
         {
             var data = new byte[sizeof(long) * 2];
-            DateTime lobbyTime = LinkModCore.Instance.MatchStart + TimeSpan.FromMinutes(Settings.Instance.JoinTime);
-            DateTime matchTime = lobbyTime + TimeSpan.FromMinutes(Settings.Instance.BattleTime);
+            DateTime lobbyTime = LinkModCore.Instance.MatchStart + TimeSpan.FromMinutes(Settings.Instance.CurrentData.JoinTime);
+            DateTime matchTime = lobbyTime + TimeSpan.FromMinutes(Settings.Instance.CurrentData.BattleTime);
             BitConverter.GetBytes(lobbyTime.Ticks).CopyTo(data, 0);
             BitConverter.GetBytes(matchTime.Ticks).CopyTo(data, sizeof(long));
 

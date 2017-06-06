@@ -12,6 +12,7 @@ using VRage.Game;
 using VRage.Game.Components;
 using VRage.Game.ModAPI;
 using VRage.ModAPI;
+using VRage.Serialization;
 using VRageMath;
 
 /*
@@ -163,14 +164,14 @@ namespace ServerLinkMod
                         return;
                     }
 
-                    if (Settings.Instance.Hub && Settings.Instance.HubEnforcement)
+                    if (Settings.Instance.IsHub && Settings.Instance.Hub.HubEnforcement)
                     {
                         if (_updateCount % 10 == 0)
                             ProcessEnforcement();
                     }
                     else
                     {
-                        if (Settings.Instance.NodeEnforcement && _updateCount % 120 == 0)
+                        if (Settings.Instance.CurrentData.NodeEnforcement && _updateCount % 120 == 0)
                             ProcessCleanup();
 
                         if (_lobbyRunning)
@@ -198,7 +199,7 @@ namespace ServerLinkMod
 
         public void TryStartLobby()
         {
-            if (!_lobbyRunning && !_matchRunning && !Settings.Instance.Hub)
+            if (!_lobbyRunning && !_matchRunning && !Settings.Instance.IsHub)
             {
                 var players = new List<IMyPlayer>();
                 MyAPIGateway.Players.GetPlayers(players);
@@ -220,7 +221,7 @@ namespace ServerLinkMod
 
             if (command.Equals("!join", StringComparison.CurrentCultureIgnoreCase))
             {
-                if (!Settings.Instance.Hub)
+                if (!Settings.Instance.IsHub)
                 {
                     Communication.SendServerChat(steamId, "Join commands are not valid in battle servers!");
                     return;
@@ -279,13 +280,13 @@ namespace ServerLinkMod
                 var blocks = new List<IMySlimBlock>();
                 grid.GetBlocks(blocks);
 
-                if (blocks.Count > Settings.Instance.MaxBlockCount)
+                if (blocks.Count > node.NodeData.MaxBlockCount)
                 {
-                    Communication.SendServerChat(steamId, $"Your ship has {blocks.Count} blocks. The limit for this server is {Settings.Instance.MaxBlockCount}");
+                    Communication.SendServerChat(steamId, $"Your ship has {blocks.Count} blocks. The limit for this server is {node.NodeData.MaxBlockCount}");
                     return;
                 }
 
-                byte[] payload = Utilities.SerializeAndSign(grid, Utilities.GetPlayerBySteamId(steamId), block.Position);
+                byte[] payload = Utilities.SerializeAndSign(grid, Utilities.GridLinkType.Logical, Utilities.GetPlayerBySteamId(steamId), block.Position, node.IP);
                 Communication.SegmentAndSend(Communication.MessageType.ClientGridPart, payload, MyAPIGateway.Multiplayer.ServerId, steamId);
 
                 node.Join(steamId);
@@ -299,12 +300,12 @@ namespace ServerLinkMod
 
             if (command.Equals("!hub", StringComparison.CurrentCultureIgnoreCase))
             {
-                if (Settings.Instance.Hub)
+                if (Settings.Instance.IsHub)
                 {
                     Communication.SendServerChat(steamId, "You're already in the hub!");
                     return;
                 }
-                else if(Settings.Instance.ReturnShip)
+                else if(Settings.Instance.CurrentData.ReturnShip)
                 {
                     var player = Utilities.GetPlayerBySteamId(steamId);
                     var block = player?.Controller?.ControlledEntity?.Entity as IMyCubeBlock;
@@ -315,11 +316,11 @@ namespace ServerLinkMod
 
                     if (grid != null)
                     {
-                        byte[] payload = Utilities.SerializeAndSign(grid, player, block?.Position ?? Vector3I.Zero);
+                        byte[] payload = Utilities.SerializeAndSign(grid, Utilities.GridLinkType.Logical, player, block?.Position ?? Vector3I.Zero, Settings.Instance.Global.HubIP);
                         Communication.SegmentAndSend(Communication.MessageType.ClientGridPart, payload, MyAPIGateway.Multiplayer.ServerId, steamId);
                     }
                 }
-                Communication.RedirectClient(steamId, Settings.Instance.HubIP);
+                Communication.RedirectClient(steamId, Settings.Instance.Global.HubIP);
                 return;
             }
 
@@ -429,7 +430,7 @@ namespace ServerLinkMod
                         return;
                     }
                     
-                    byte[] payload = Utilities.SerializeAndSign(grid, Utilities.GetPlayerBySteamId(steamId), block.Position);
+                    byte[] payload = Utilities.SerializeAndSign(grid, Utilities.GridLinkType.Physical, Utilities.GetPlayerBySteamId(steamId), block.Position, Settings.Instance.CurrentData.IP);
                     var writer = MyAPIGateway.Utilities.WriteBinaryFileInLocalStorage("TestShip.bin", typeof(LinkModCore));
                     writer.Write(payload.Length);
                     writer.Write(payload);
@@ -448,7 +449,7 @@ namespace ServerLinkMod
 
                     ClientData data;
                     Utilities.DeserializeAndVerify(payload, out data, true);
-                    Utilities.FindPositionAndSpawn(data.Grid, MyAPIGateway.Session.Player.IdentityId, data.ControlledBlock);
+                    Utilities.FindPositionAndSpawn(data.Grids, MyAPIGateway.Session.Player.IdentityId, data.ControlledBlock);
 
                     Communication.SendServerChat(steamId, $"Processing...");
                 }
@@ -497,28 +498,47 @@ namespace ServerLinkMod
             if (MyAPIGateway.Multiplayer.IsServer)
             {
                 Settings.LoadSettings();
+                if (Settings.Instance == null)
+                {
+                    Settings.Instance = new Settings();
+                    Settings.Instance.Global = new Settings.GlobalSettings();
+                    Settings.Instance.Nodes = new SerializableDictionary<string, Settings.NodeData>();
+                    Settings.Instance.Global.HubIP = Settings.Instance.Global.CurrentIP = Utilities.ZERO_IP;
+                    Settings.Instance.Global.Password = "TESTPASSWORD";
+                    Settings.Instance.Nodes.Dictionary.Add(Utilities.ZERO_IP, new Settings.HubData());
+                    Settings.SaveSettings();
+                }
 
                 int index = 0;
                 foreach (var entry in Settings.Instance.Nodes.Dictionary)
                     Nodes.Add(index++, new NodeItem(index, entry.Key, entry.Value));
-                
-                _lobbyTimer = new Timer(Settings.Instance.JoinTime * 60 * 1000);
-                _lobbyTimer.AutoReset = false;
-                _lobbyTimer.Elapsed += LobbyTimer_Elapsed;
 
-                _matchTimer = new Timer(Settings.Instance.BattleTime * 60 * 1000);
-                _matchTimer.AutoReset = false;
-                _matchTimer.Elapsed += MatchTimer_Elapsed;
-
-                if (Settings.Instance.Hub && Settings.Instance.HubEnforcement)
+                if (Settings.Instance.CurrentData.NodeType == Settings.NodeType.Battle)
                 {
-                    _cleanupTimer = new Timer(10 * 60 * 1000);
-                    _cleanupTimer.Elapsed += CleanupTimer_Elapsed;
-                    _cleanupTimer.Start();
-                    MyAPIGateway.Session.DamageSystem.RegisterBeforeDamageHandler(0, HubDamage);
+                    _lobbyTimer = new Timer(Settings.Instance.CurrentData.JoinTime * 60 * 1000);
+                    _lobbyTimer.AutoReset = false;
+                    _lobbyTimer.Elapsed += LobbyTimer_Elapsed;
+
+                    _matchTimer = new Timer(Settings.Instance.CurrentData.BattleTime * 60 * 1000);
+                    _matchTimer.AutoReset = false;
+                    _matchTimer.Elapsed += MatchTimer_Elapsed;
+                }
+
+                if (Settings.Instance.IsHub)
+                {
+                    if (Settings.Instance.Hub.HubEnforcement)
+                    {
+                        _cleanupTimer = new Timer(10 * 60 * 1000);
+                        _cleanupTimer.Elapsed += CleanupTimer_Elapsed;
+                        _cleanupTimer.Start();
+                        MyAPIGateway.Session.DamageSystem.RegisterBeforeDamageHandler(0, HubDamage);
+                    }
                 }
                 else
+                {
+                    if(Settings.Instance.CurrentData.NodeType == Settings.NodeType.Battle)
                     MyAPIGateway.Session.DamageSystem.RegisterBeforeDamageHandler(0, BattleDamage);
+                }
             }
         }
 
@@ -671,11 +691,11 @@ namespace ServerLinkMod
 
                                                             blocks.Clear();
                                                             grid.GetBlocks(blocks);
-                                                            if (blocks.Count > Settings.Instance.MaxBlockCount)
+                                                            if (blocks.Count > Settings.Instance.CurrentData.MaxBlockCount)
                                                             {
-                                                                Communication.SendServerChat(id, $"The ship {grid.DisplayName} has gone over the max block count of {Settings.Instance.MaxBlockCount}. Blocks will be removed to enforce rules.");
+                                                                Communication.SendServerChat(id, $"The ship {grid.DisplayName} has gone over the max block count of {Settings.Instance.CurrentData.MaxBlockCount}. Blocks will be removed to enforce rules.");
 
-                                                                toRaze.UnionWith(blocks.GetRange(Settings.Instance.MaxBlockCount - 1, blocks.Count - Settings.Instance.MaxBlockCount - 1));
+                                                                toRaze.UnionWith(blocks.GetRange(Settings.Instance.CurrentData.MaxBlockCount - 1, blocks.Count - Settings.Instance.CurrentData.MaxBlockCount - 1));
                                                             }
 
                                                             if (toRaze.Any())
@@ -731,13 +751,13 @@ namespace ServerLinkMod
                                                                 id = MyAPIGateway.Players.TryGetSteamId(grid.BigOwners[0]);
 
                                                             Vector3D pos = grid.GetPosition();
-                                                            if (pos.LengthSquared() > (Settings.Instance.SpawnRadius + 1000) * (Settings.Instance.SpawnRadius + 1000))
+                                                            if (pos.LengthSquared() > (Settings.Instance.CurrentData.SpawnRadius + 1000) * (Settings.Instance.CurrentData.SpawnRadius + 1000))
                                                             {
                                                                 if (id != 0)
                                                                     Communication.SendNotification(id, "You have left the battle zone! Turn back now or face consequences!");
                                                             }
 
-                                                            if (pos.LengthSquared() > (Settings.Instance.SpawnRadius + 2000) * (Settings.Instance.SpawnRadius + 2000))
+                                                            if (pos.LengthSquared() > (Settings.Instance.CurrentData.SpawnRadius + 2000) * (Settings.Instance.CurrentData.SpawnRadius + 2000))
                                                             {
                                                                                                               IMySlimBlock b = blocks[_random.Next(blocks.Count)];
                                                                 var p = b.GetPosition();

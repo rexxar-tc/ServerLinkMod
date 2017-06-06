@@ -5,10 +5,13 @@ using System.Text;
 using System.Timers;
 using Sandbox.Common.ObjectBuilders;
 using Sandbox.Game;
+using Sandbox.Game.EntityComponents;
 using Sandbox.ModAPI;
+using SpaceEngineers.Game.ModAPI;
 using VRage.Game;
 using VRage.Game.Entity;
 using VRage.Game.ModAPI;
+using VRage.Game.ObjectBuilders.ComponentSystem;
 using VRage.ModAPI;
 using VRageMath;
 
@@ -23,6 +26,14 @@ namespace ServerLinkMod
             Timeout,
             ContentModified,
             WrongIP,
+        }
+
+        public enum GridLinkType
+        {
+            Single,
+            Logical,
+            Physical,
+            Mechanical,
         }
 
         public const string ZERO_IP = "0.0.0.0:27016";
@@ -40,23 +51,159 @@ namespace ServerLinkMod
             MyAPIGateway.Utilities.InvokeOnGameThread(() => MyAPIGateway.Multiplayer.JoinServer(ip));
         }
 
-        public static byte[] SerializeAndSign(IMyCubeGrid grid, IMyPlayer player, Vector3I block)
+        public static HashSet<IMyCubeGrid> GetGridGroup(IMyCubeGrid gridInGroup, GridLinkType linkType)
         {
-            var c = grid.GetCubeBlock(block)?.FatBlock as IMyCockpit;
-            IMyCharacter pilot = c?.Pilot;
-            c?.RemovePilot();
+            var result = new HashSet<IMyCubeGrid>();
 
-            var ob = (MyObjectBuilder_CubeGrid)grid.GetObjectBuilder();
+            if (linkType == GridLinkType.Single)
+            {
+                result.Add(gridInGroup);
+                return result;
+            }
 
-            if (pilot != null)
-                c.AttachPilot(pilot);
+            FindConnected(gridInGroup, linkType, result);
 
+            return result;
+        }
+
+        /// <summary>
+        /// Recursive function to find grids connected with the given constraint.
+        /// Mechanical: connected by piston and rotor
+        /// Logical: connected by ship connector or mechanical connection
+        /// Physical: connected by landing gear or logical, or mechanical
+        /// 
+        /// Should be analagous to the data hidden in MyCubeGridGroups
+        /// </summary>
+        /// <param name="origin"></param>
+        /// <param name="linkType"></param>
+        /// <param name="result"></param>
+        public static void FindConnected(IMyCubeGrid origin, GridLinkType linkType, HashSet<IMyCubeGrid> result)
+        {
+            if (origin == null)
+                return;
+
+            if (!result.Add(origin))
+            {
+                //we've already processed this grid;
+                return;
+            }
+
+            var blocks = new List<IMySlimBlock>();
+                origin.GetBlocks(blocks);
+            if (linkType == GridLinkType.Mechanical || linkType == GridLinkType.Logical || linkType == GridLinkType.Physical)
+            {
+                foreach (var slim in blocks)
+                {
+                    var block = slim?.FatBlock;
+                    if (block == null)
+                        continue;
+
+                    var mec = block as IMyMechanicalConnectionBlock;
+                    if (mec != null)
+                    {
+                        FindConnected(mec.TopGrid, linkType, result);
+                        continue;
+                    }
+
+                    var top = block as IMyAttachableTopBlock;
+                    if (top != null)
+                    {
+                        FindConnected(top.Base?.CubeGrid, linkType, result);
+                        continue;
+                    }
+                }
+            }
+
+            if (linkType == GridLinkType.Logical || linkType == GridLinkType.Physical)
+            {
+                foreach (var slim in blocks)
+                {
+                    var block = slim?.FatBlock;
+
+                    var con = block as IMyShipConnector;
+                    if (con != null)
+                    {
+                        FindConnected(con.OtherConnector?.CubeGrid, linkType, result);
+                        continue;
+                    }
+                }
+            }
+
+            if (linkType == GridLinkType.Physical)
+            {
+                var box = origin.WorldAABB;
+
+                foreach (var slim in blocks)
+                {
+                    var lg = slim?.FatBlock as IMyLandingGear;
+                    var g = lg?.GetAttachedEntity() as IMyCubeGrid;
+                    if (g == null)
+                        continue;
+
+                    FindConnected(g, linkType, result);
+                }
+
+
+                var ents = MyAPIGateway.Entities.GetTopMostEntitiesInBox(ref box);
+
+                foreach (var ent in ents)
+                {
+                    var grid = ent as IMyCubeGrid;
+                    if (grid == null)
+                        return;
+
+                    blocks.Clear();
+                    grid.GetBlocks(blocks);
+
+                    foreach (var slim in blocks)
+                    {
+                        var block = slim?.FatBlock;
+
+                        var lg = block as IMyLandingGear;
+
+                        var g = lg?.GetAttachedEntity() as IMyCubeGrid;
+                        if (g == null)
+                            continue;
+
+                        if (!result.Contains(g))
+                            continue;
+
+                        FindConnected(grid, linkType, result);
+                        break;
+                    }
+                }
+            }
+        }
+
+        public static byte[] SerializeAndSign(IMyCubeGrid grid, GridLinkType linkType, IMyPlayer player, Vector3I block, string destIP)
+        {
             IMyFaction fac = MyAPIGateway.Session.Factions.TryGetPlayerFaction(player.IdentityId);
-            var data = new ClientData(ob, fac, block, Settings.Instance.HubIP);
 
-            string obStr = MyAPIGateway.Utilities.SerializeToXML(data);
-            string totalStr = DateTime.UtcNow.Ticks + obStr;
-            string evalStr = totalStr + Settings.Instance.Password;
+            var group = GetGridGroup(grid, linkType);
+            var obs = new MyObjectBuilder_CubeGrid[group.Count];
+            int index = 0;
+            var blocks = new List<IMySlimBlock>();
+            foreach (var g in group)
+            {
+                UpdateGridData(g);
+                blocks.Clear();
+                g.GetBlocks(blocks);
+                {
+                    foreach (var slim in blocks)
+                    {
+                        var c = slim?.FatBlock as IMyCockpit;
+                        c?.RemovePilot();
+                    }
+                }
+                var ob = (MyObjectBuilder_CubeGrid)g.GetObjectBuilder();
+                obs[index] = ob;
+                index++;
+            }
+
+            var data = new ClientData(obs, fac, block, destIP);
+
+            string totalStr = MyAPIGateway.Utilities.SerializeToXML(data);
+            string evalStr = totalStr + Settings.Instance.Global.Password;
 
             var m = new MD5();
             m.Value = evalStr;
@@ -65,26 +212,48 @@ namespace ServerLinkMod
             return Encoding.UTF8.GetBytes(totalStr);
         }
 
+        public static void UpdateGridData(IMyCubeGrid grid)
+        {
+            var data = new GridData(grid);
+            var bytes = MyAPIGateway.Utilities.SerializeToBinary(data);
+            var str = Convert.ToBase64String(bytes);
+            if(grid.Storage==null)
+                grid.Storage = new MyModStorageComponent();
+            grid.Storage[Settings.STORAGE_GUID] = str;
+        }
+
+        public static GridData GetGridData(MyObjectBuilder_CubeGrid ob)
+        {
+            var comp = ob.ComponentContainer.Components.Find(c => c.Component is MyObjectBuilder_ModStorageComponent)?.Component as MyObjectBuilder_ModStorageComponent;
+            if (comp == null)
+                return null;
+
+            var str = comp.Storage[Settings.STORAGE_GUID];
+            var data = Convert.FromBase64String(str);
+
+            var gridData = MyAPIGateway.Utilities.SerializeFromBinary<GridData>(data);
+            return gridData;
+        }
+
         public static VerifyResult DeserializeAndVerify(byte[] data, out ClientData clientData, bool ignoreTimestamp = false)
         {
             string input = Encoding.UTF8.GetString(data);
             try
             {
-                string timeAndOb = input.Substring(0, input.Length - 32);
+                string dataStr = input.Substring(0, input.Length - 32);
                 string hash = input.Substring(input.Length - 32);
 
                 var m = new MD5();
-                m.Value = timeAndOb + Settings.Instance.Password;
+                m.Value = dataStr + Settings.Instance.Global.Password;
                 string sign = m.FingerPrint;
-
-                long ticks = long.Parse(timeAndOb.Substring(0, 18));
-                string obString = timeAndOb.Substring(18);
+                
+                string obString = dataStr;
 
                 clientData = MyAPIGateway.Utilities.SerializeFromXML<ClientData>(obString);
 
-                var time = new DateTime(ticks);
+                var time = new DateTime(clientData.Timestamp);
 
-                if(clientData.HubIP != Settings.Instance.HubIP)
+                if(clientData.SourceIP != Settings.Instance.Global.CurrentIP && clientData.DestIP != Settings.Instance.Global.CurrentIP)
                     return VerifyResult.WrongIP;
 
                 if (sign != hash)
@@ -110,31 +279,78 @@ namespace ServerLinkMod
         /// </summary>
         /// <param name="ob"></param>
         /// <param name="playerId"></param>
-        public static IMyCubeGrid FindPositionAndSpawn(MyObjectBuilder_CubeGrid ob, long playerId, Vector3I controlledBlock)
+        public static void FindPositionAndSpawn(MyObjectBuilder_CubeGrid[] obs, long playerId, Vector3I controlledBlock, Action<IMyCubeGrid[]> callback = null )
         {
-            MyAPIGateway.Entities.RemapObjectBuilder(ob);
-            foreach (MyObjectBuilder_CubeBlock block in ob.CubeBlocks)
+            MyAPIGateway.Entities.RemapObjectBuilderCollection(obs);
+            for (int i = 0; i < obs.Length; i++)
             {
-                block.Owner = playerId;
-                var c = block as MyObjectBuilder_Cockpit;
-                if (c == null)
-                    continue;
-                c.Pilot = null;
+                var ob = obs[i];
+                //MyAPIGateway.Entities.RemapObjectBuilder(ob);
+                foreach (MyObjectBuilder_CubeBlock block in ob.CubeBlocks)
+                {
+                    block.Owner = playerId;
+                    var c = block as MyObjectBuilder_Cockpit;
+                    if (c == null)
+                        continue;
+                    c.Pilot = null;
+                }
+                ob.IsStatic = false;
+
+                var counter = new SpawnCounter(obs, playerId, controlledBlock);
+                //IMyEntity ent = MyAPIGateway.Entities.CreateFromObjectBuilder(ob);
+                MyAPIGateway.Entities.CreateFromObjectBuilderParallel(ob, true, () => counter.Increment());
             }
-            ob.IsStatic = false;
-            //IMyEntity ent = MyAPIGateway.Entities.CreateFromObjectBuilder(ob);
-            MyAPIGateway.Entities.CreateFromObjectBuilderParallel(ob, true, () => SpawnCallback(ob.EntityId, playerId, controlledBlock));
         }
 
-        private static void SpawnCallback(long entityId, long playerId, Vector3I controlledBlock)
+        private class SpawnCounter
         {
+            private int _counter;
+            private readonly int _maxCount;
+            private readonly long _playerId;
+            private readonly MyObjectBuilder_CubeGrid[] _grids;
+            private readonly Vector3I _controlledBlock;
+            private readonly Action<IMyCubeGrid[]> _callback;
+
+            public SpawnCounter(MyObjectBuilder_CubeGrid[] grids, long playerId, Vector3I controlledBlock, Action<IMyCubeGrid[]> callback = null)
+            {
+                _grids = grids;
+                _counter = 0;
+                _maxCount = grids.Length;
+                _controlledBlock = controlledBlock;
+                _playerId = playerId;
+                _callback = callback;
+            }
+
+            public void Increment()
+            {
+                _counter++;
+                if (_counter < _maxCount)
+                    return;
+
+                var grids = SpawnCallback(_grids, _playerId, _controlledBlock);
+                _callback?.Invoke(grids);
+            }
+        }
+
+        private static IMyCubeGrid[] SpawnCallback(MyObjectBuilder_CubeGrid[] obs, long playerId, Vector3I controlledBlock)
+        {
+            IMyCubeGrid[] result = new IMyCubeGrid[obs.Length];
+            BoundingSphereD sphere = new BoundingSphereD(Vector3D.Zero, 0);
+            for (int i = 0; i < obs.Length; i++)
+            {
+                var ent = MyAPIGateway.Entities.GetEntityById(obs[i].EntityId) as IMyCubeGrid;
+                if (ent == null)
+                    throw new NullReferenceException();
+                result[i] = ent;
+                if (sphere.Radius == 0)
+                    sphere = ent.WorldVolume;
+                else
+                    sphere.Include(ent.WorldVolume);
+            }
+
+            var target = Vector3D.Zero;
+
             IMyFaction fac = MyAPIGateway.Session.Factions.TryGetPlayerFaction(playerId);
-            var ent = MyAPIGateway.Entities.GetEntityById(entityId);
-
-            Vector3D pos = RandomPositionFromPoint(Vector3D.Zero, Random.NextDouble() * Settings.Instance.SpawnRadius);
-            ent.SetPosition(MyAPIGateway.Entities.FindFreePlace(pos, (float)ent.WorldVolume.Radius) ?? pos);
-
-            IMyPlayer player = GetPlayerById(playerId);
             if (fac != null)
             {
                 var entities = new HashSet<IMyEntity>();
@@ -153,16 +369,28 @@ namespace ServerLinkMod
                     if (f != fac)
                         continue;
 
-                    Vector3D p = RandomPositionFromPoint(g.GetPosition(), 100);
-                    ent.SetPosition(MyAPIGateway.Entities.FindFreePlace(p, (float)ent.WorldVolume.Radius) ?? p);
+                    target = RandomPositionFromPoint(g.GetPosition(), 100);
 
                     break;
                 }
             }
 
-            ((IMyCubeGrid)ent).ChangeGridOwnership(playerId, MyOwnershipShareModeEnum.Faction);
+            Vector3D pos = RandomPositionFromPoint(target, Random.NextDouble() * Settings.Instance.CurrentData.SpawnRadius);
+            var offset = MyAPIGateway.Entities.FindFreePlace(pos, (float)sphere.Radius) ?? pos;
 
-            IMySlimBlock slim = ((IMyCubeGrid)ent).GetCubeBlock(controlledBlock);
+            MyAPIGateway.Utilities.InvokeOnGameThread(() =>
+                                                      {
+                                                          foreach (var ent in result)
+                                                          {
+                                                              var m = ent.WorldMatrix;
+                                                              m.Translation += offset;
+                                                              ent.SetWorldMatrix(m);
+                                                          }
+                                                      });
+
+            IMyPlayer player = GetPlayerById(playerId);
+
+            IMySlimBlock slim = result[0]?.GetCubeBlock(controlledBlock);
             if (slim?.FatBlock is IMyCockpit && player?.Character != null)
             {
                 var c = (IMyCockpit)slim.FatBlock;
@@ -171,11 +399,11 @@ namespace ServerLinkMod
             }
             else
             {
-                Vector3D cPos = RandomPositionFromPoint(ent.WorldVolume.Center, ent.WorldVolume.Radius + 10);
+                Vector3D cPos = RandomPositionFromPoint(sphere.Center, sphere.Radius + 10);
                 player?.Character?.SetPosition(cPos);
             }
 
-            return (IMyCubeGrid)ent;
+            return result;
         }
 
         /// <summary>
@@ -195,10 +423,10 @@ namespace ServerLinkMod
 
                 if (grid != null)
                 {
-                    byte[] payload = Utilities.SerializeAndSign(grid, p, block?.Position ?? Vector3I.Zero);
+                    byte[] payload = Utilities.SerializeAndSign(grid, GridLinkType.Logical, p, block?.Position ?? Vector3I.Zero, Settings.Instance.Global.HubIP);
                     Communication.SegmentAndSend(Communication.MessageType.ClientGridPart, payload, MyAPIGateway.Multiplayer.ServerId, p.SteamUserId);
                 }
-                Communication.RedirectClient(p.SteamUserId, Settings.Instance.HubIP);
+                Communication.RedirectClient(p.SteamUserId, Settings.Instance.Global.HubIP);
             }
 
             var timer = new Timer(10000);

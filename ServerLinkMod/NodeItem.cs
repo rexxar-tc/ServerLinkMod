@@ -11,21 +11,21 @@ namespace ServerLinkMod
         public int CurrentUsers;
         public Timer JoinTimer;
         public bool MatchRunning;
-        public Settings.NodeType Type;
+        public Settings.NodeData NodeData;
 
-        public NodeItem(int index, string ip, Settings.NodeType type)
+        public NodeItem(int index, string ip, Settings.NodeData data)
         {
             Index = index;
             IP = ip;
-            Type = type;
+            NodeData = data;
 
-            if (type == Settings.NodeType.Battle)
+            if (data.NodeType == Settings.NodeType.Battle)
             {
-                JoinTimer = new Timer(Settings.Instance.JoinTime * 60 * 1000);
+                JoinTimer = new Timer(data.JoinTime * 60 * 1000);
                 JoinTimer.Elapsed += JoinTimer_Elapsed;
                 JoinTimer.AutoReset = false;
 
-                BattleTimer = new Timer(Settings.Instance.BattleTime * 60 * 1000);
+                BattleTimer = new Timer(data.BattleTime * 60 * 1000);
                 BattleTimer.Elapsed += BattleTimer_Elapsed;
                 BattleTimer.AutoReset = false;
             }
@@ -33,7 +33,7 @@ namespace ServerLinkMod
 
         public bool CanJoin
         {
-            get { return !MatchRunning && CurrentUsers < Settings.Instance.MaxPlayerCount; }
+            get { return !MatchRunning && CurrentUsers < NodeData.MaxPlayerCount; }
         }
 
         public void Join(ulong steamId)
@@ -41,22 +41,22 @@ namespace ServerLinkMod
             if (CanJoin)
                 Communication.RedirectClient(steamId, IP);
             if (CurrentUsers == 0)
-                Start();
+                StartBattle();
             CurrentUsers++;
         }
 
         public void Reset()
         {
-            JoinTimer.Stop();
-            BattleTimer.Stop();
+            JoinTimer?.Stop();
+            BattleTimer?.Stop();
             MatchRunning = false;
             CurrentUsers = 0;
         }
 
-        public void Start()
+        public void StartBattle()
         {
-            Communication.SendNotification(0, $"A match is being started on server {Index + 1}! You can join the match in the next {Settings.Instance.JoinTime} minutes!", MyFontEnum.Blue, 10000);
-            JoinTimer.Start();
+            Communication.SendNotification(0, $"A match is being started on server {Index + 1}! You can join the match in the next {NodeData.JoinTime} minutes!", MyFontEnum.Blue, 10000);
+            JoinTimer?.Start();
         }
 
         private void BattleTimer_Elapsed(object sender, ElapsedEventArgs e)
